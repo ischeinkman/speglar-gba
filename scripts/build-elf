@@ -1,0 +1,9 @@
+#!/usr/bin/bash 
+
+cargo build $1
+MPATH="target/thumbv4t-none-eabi/release/speglar-gba"
+if [ -z "$1" ]; then 
+    MPATH="target/thumbv4t-none-eabi/debug/speglar-gba"
+fi; 
+
+mv "$MPATH" "$MPATH.elf"

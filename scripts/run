@@ -1,0 +1,10 @@
+#!/usr/bin/bash 
+
+./scripts/build-elf $1
+
+MPATH="target/thumbv4t-none-eabi/debug/speglar-gba.elf"
+if [ "$1" = "--release" ]; then 
+    MPATH="target/thumbv4t-none-eabi/release/speglar-gba.elf"
+fi; 
+
+mgba-qt -C logToStdout=1 -C logLevel.gba.debug=127 $MPATH
