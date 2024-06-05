@@ -1,4 +1,4 @@
-use core::ops::{Deref, DerefMut};
+use core::{default, ops::{Deref, DerefMut}};
 
 use voladdress::{Safe, Unsafe, VolAddress};
 
@@ -11,6 +11,14 @@ const SIOMULTI0: VolAddress<u16, Safe, Safe> = unsafe { VolAddress::new(0x400012
 const SIOMULTI1: VolAddress<u16, Safe, Safe> = unsafe { VolAddress::new(0x4000122) };
 const SIOMULTI2: VolAddress<u16, Safe, Safe> = unsafe { VolAddress::new(0x4000124) };
 const SIOMULTI3: VolAddress<u16, Safe, Safe> = unsafe { VolAddress::new(0x4000126) };
+
+#[derive(PartialEq, Eq, Hash, Debug, PartialOrd, Ord, Clone, Copy)]
+pub enum Pin {
+    SC = 0,
+    SD = 1,
+    SI = 2,
+    SO = 3,
+}
 
 pub struct RegisterWrapper {
     addr: VolAddress<u16, Safe, Safe>,

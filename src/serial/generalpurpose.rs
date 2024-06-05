@@ -2,21 +2,6 @@ use alloc::rc;
 
 use super::*;
 
-/*
-
-
-    pub fn sc_data(&self) -> bool {self.reg.read_bit(0)}
-
-    pub fn sd_data(&self) -> bool {
-        self.reg.read_bit(1)
-    }
-    pub fn si_data(&self) -> bool {
-        self.reg.read_bit(2)
-    }
-    pub fn so_data(&self) -> bool {
-        self.reg.read_bit(3)
-    }
-*/
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Default)]
 #[repr(u8)]
 pub enum GpioDirection {
@@ -67,9 +52,22 @@ impl<'a> GeneralPurpose<'a> {
     pub fn interupt_enabled(&self) -> bool {
         RcntWrapper::get().si_interrupt_enabled()
     }
-
     pub fn set_interrupt(&self, interupt: bool) {
         RcntWrapper::get().enable_si_interrupt(interupt)
+    }
+    pub fn pins(&self) -> PinState {
+        PinState::from_rcnt(RcntWrapper::get().read())
+    }
+    pub fn write_pins(&self, state : PinState) {
+        let old = RcntWrapper::get().read();
+        let new = (old & !PinState::MASK) | state.into_rcnt();
+        RcntWrapper::get().write(new)
+    }
+    pub fn write_pin(&self, pin : Pin, high : bool) {
+        RcntWrapper::get().write_bit(pin as u8, high)
+    }
+    pub fn read_pin(&self, pin : Pin) -> bool {
+        RcntWrapper::get().read_bit(pin as u8)
     }
 }
 
@@ -83,14 +81,14 @@ pub struct GpioConfig {
 
 impl GpioConfig {
     const MASK: u16 = 0xFu16 << 4;
-    fn from_rcnt(value: u16) -> Self {
+    const fn from_rcnt(value: u16) -> Self {
         let sc = GpioDirection::from_is_output((value & (1 << 4)) != 0);
         let sd = GpioDirection::from_is_output((value & (1 << 5)) != 0);
         let si = GpioDirection::from_is_output((value & (1 << 6)) != 0);
         let so = GpioDirection::from_is_output((value & (1 << 7)) != 0);
         Self { sc, sd, si, so }
     }
-    fn into_rcnt(&self) -> u16 {
+    const fn into_rcnt(&self) -> u16 {
         (self.sc.as_u16() << 4)
             | (self.sd.as_u16() << 5)
             | (self.si.as_u16() << 6)
@@ -99,21 +97,17 @@ impl GpioConfig {
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Default)]
 pub struct PinState {
-    pub state: u8,
+    state: u8,
 }
 
 impl PinState {
-    pub const fn new(sc_high: bool, sd_high: bool, si_high: bool, so_high: bool) -> Self {
-        let retvl = Self { state: 0 };
-        retvl
-            .with_sc(sc_high)
-            .with_sd(sd_high)
-            .with_si(si_high)
-            .with_so(so_high)
-    }
+    const MASK : u16 = 0xF; 
     const fn from_rcnt(rcnt: u16) -> Self {
-        let masked = (rcnt & 0xF) as u8;
+        let masked = (rcnt & Self::MASK) as u8;
         Self { state: masked }
+    }
+    const fn into_rcnt(&self) -> u16 {
+        self.state as u16
     }
     pub const fn sc(&self) -> bool {
         read_bit_u8(self.state, 0)
@@ -158,9 +152,18 @@ impl PinState {
 }
 
 pub struct GpioState {
-    pub si_high: bool,
-    pub so_high: bool,
-    pub sc_high: bool,
-    pub sd_high: bool,
+    pub pins: PinState,
     pub config: GpioConfig,
+}
+
+impl GpioState {
+    const fn from_rcnt(rcnt: u16) -> Self {
+        Self {
+            pins: PinState::from_rcnt(rcnt),
+            config: GpioConfig::from_rcnt(rcnt),
+        }
+    }
+    const fn into_rcnt(&self) -> u16 {
+        self.pins.into_rcnt() | self.config.into_rcnt()
+    }
 }
