@@ -23,38 +23,41 @@ use agb::{
         tiled::{MapLoan, RegularBackgroundSize, RegularMap, TiledMap, VRamManager},
         Priority,
     },
-    input::ButtonController,
+    external::portable_atomic::Ordering,
+    input::{Button, ButtonController},
+    interrupt::{add_interrupt_handler, Interrupt},
     mgba::DebugLevel,
-    println, Gba,
+    Gba,
 };
 
 mod bullet;
 mod map;
 mod rng;
 mod serial;
-use alloc::vec::Vec;
+use alloc::{format, vec::Vec};
 use bullet::*;
+use core::fmt::Write;
 mod utils;
 use map::GameMap;
 pub use utils::*;
 mod player;
 pub use player::*;
 mod graphics;
+mod logs;
+use logs::{println, warning, Logger};
 
 // The main function must take 1 arguments and never return. The agb::entry decorator
 // ensures that everything is in order. `agb` will call this after setting up the stack
 // and interrupt handlers correctly. It will also handle creating the `Gba` struct for you.
 #[agb::entry]
 fn main(mut gba: agb::Gba) -> ! {
-    main_inner(gba)
+    multiplayer_test_main(gba)
 }
 
+#[allow(dead_code)]
 fn main_inner(mut gba: Gba) -> ! {
     let vblank = agb::interrupt::VBlank::get();
-    if let Some(mut mgba) = agb::mgba::Mgba::new() {
-        mgba.set_level(DebugLevel::Debug);
-    }
-    let mut frameidx = 0;
+    Logger::get().set_level(DebugLevel::Debug);
     let test_map = map::generate(0xdeadbeef, map::HONEYCOMB_BASE, 16, 32);
     let gfx = gba.display.object.get_managed();
     let test_map = GameMap::new_undisplayed(test_map);
@@ -73,7 +76,7 @@ fn main_inner(mut gba: Gba) -> ! {
         vblank.wait_for_vblank();
         game.update_display(&gfx);
         gfx.commit();
-        frameidx += 1;
+        Logger::get().tick();
     }
     drop(bg);
     drop(test_map);
@@ -158,4 +161,83 @@ impl<'a> GameState<'a> {
             plr.update_display(gfx);
         }
     }
+}
+use serial::{
+    multiplayer::{MultiplayerSerial, PlayerId, TransferError, MULTIPLAYER_COUNTER},
+    BaudRate, Serial,
+};
+
+#[allow(dead_code)]
+fn multiplayer_test_main(mut _gba: Gba) -> ! {
+    agb::mgba::Mgba::new().expect("Should be in mgba");
+    Logger::get().set_level(DebugLevel::Debug);
+    let mut btns = ButtonController::new();
+    let to_check = [
+        Button::UP,
+        Button::DOWN,
+        Button::LEFT,
+        Button::RIGHT,
+        Button::A,
+        Button::B,
+        Button::L,
+        Button::R,
+    ];
+
+    println!("Now waiting for press.");
+    while !btns.is_pressed(Button::A) {
+        btns.update();
+        Logger::get().tick();
+    }
+    Logger::get().id_from_framecount().unwrap();
+    let mut serial = Serial::new();
+    let mut multiplayer_handle = MultiplayerSerial::new(&mut serial, BaudRate::B9600).unwrap();
+    multiplayer_handle.enable_buffer_interrupt();
+    println!("Entered multiplayer mode");
+    multiplayer_handle.initialize_id().unwrap();
+    println!("We are {:?}", multiplayer_handle.id().unwrap());
+
+    let _vblank_handle =
+        unsafe { add_interrupt_handler(Interrupt::VBlank, |_cs| Logger::get().tick()) };
+    let mut loopcnt = 0;
+    loop {
+        multiplayer_handle.mark_unready();
+        btns.update();
+        let mut n = 0u16;
+        for (idx, btn) in to_check.into_iter().enumerate() {
+            let state = btns.is_pressed(btn);
+            let edge = btns.is_just_pressed(btn);
+            n |= ((state as u16) << idx) | ((edge as u16) << (idx + 8));
+        }
+        multiplayer_handle.write_send_reg(n);
+        multiplayer_handle.mark_ready();
+
+        while !multiplayer_handle.all_ready() {}
+        match multiplayer_handle.start_transfer() {
+            Ok(()) => {}
+            Err(TransferError::AlreadyInProgress) => {
+                warning!("Already in progress");
+            }
+            Err(e) => {
+                panic!("{:?}", e);
+            }
+        }
+        let mut msg = format!("Current loop: {:03} (Counter: {:?})\n", loopcnt, MULTIPLAYER_COUNTER.load(Ordering::Acquire));
+        for pid in PlayerId::ALL {
+            write!(&mut msg, "  -  Player {}", pid as u8).ok();
+            if Some(pid) == multiplayer_handle.id() {
+                write!(&mut msg, "(Self)").ok();
+            } else {
+                write!(&mut msg, "      ").ok();
+            }
+            writeln!(
+                &mut msg,
+                ": {:0x}",
+                multiplayer_handle.read_player_reg(pid).unwrap_or(0xFFFF)
+            )
+            .ok();
+        }
+        println!("{}", msg);
+        loopcnt += 1;
+    }
+    drop(_vblank_handle);
 }

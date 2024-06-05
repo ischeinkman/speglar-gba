@@ -1,4 +1,11 @@
-use core::mem;
+use core::fmt::Write;
+use core::{marker::PhantomData, mem};
+
+use crate::logs::println;
+use agb::external::portable_atomic::{AtomicU16, Ordering};
+use agb::interrupt::{add_interrupt_handler, Interrupt, InterruptHandler};
+use alloc::borrow::ToOwned;
+use generalpurpose::{GeneralPurpose, GpioConfig, GpioDirection};
 
 use super::*;
 
@@ -12,19 +19,24 @@ pub enum PlayerId {
     P3 = 3,
 }
 
+impl PlayerId {
+    pub const ALL: [PlayerId; 4] = [PlayerId::Parent, PlayerId::P1, PlayerId::P2, PlayerId::P3];
+}
+
 pub struct MultiplayerSerial<'a> {
-    _handle: &'a mut Serial,
+    _handle: PhantomData<&'a mut Serial>,
+    buffer_interrupt: Option<InterruptHandler>,
     is_parent: bool,
     playerid: Option<PlayerId>,
     rate: BaudRate,
 }
 
-#[allow(dead_code)]
 impl<'a> MultiplayerSerial<'a> {
     pub fn new(_handle: &'a mut Serial, rate: BaudRate) -> Result<Self, InitializationError> {
-       let mut retvl = Self {
-            _handle,
-            is_parent : false,
+        let mut retvl = Self {
+            _handle: PhantomData,
+            buffer_interrupt: None,
+            is_parent: false,
             playerid: None,
             rate,
         };
@@ -41,19 +53,136 @@ impl<'a> MultiplayerSerial<'a> {
         siocnt.set_mode(SerialMode::Multiplayer);
         siocnt.set_baud_rate(self.rate);
 
-        let is_okay = siocnt.reg.read_bit(3);
-        if !is_okay {
+        if siocnt.error_flag() {
             return Err(InitializationError::FailedOkayCheck);
         }
-        let is_parent = siocnt.reg.read_bit(2);
+        let is_parent = siocnt.is_parent();
         self.is_parent = is_parent;
-        self.playerid = self.is_parent.then_some(PlayerId::Parent);
         Ok(())
+    }
+    pub fn enable_buffer_interrupt(&mut self) {
+        self.enable_interrupt(true);
+        self.buffer_interrupt =
+            Some(unsafe { add_interrupt_handler(Interrupt::Serial, |_| serialized_interrupt()) });
+    }
+    pub fn write_send_reg(&mut self, data: u16) {
+        SIOMLT_SEND.write(data)
+    }
+    pub fn read_player_reg_raw(&self, player: PlayerId) -> Option<u16> {
+        MultiplayerCommReg::new(player).read()
+    }
+    pub fn read_player_reg(&self, player: PlayerId) -> Option<u16> {
+        MultiplayerCommReg::new(player).read().or_else(|| {
+            let raw = MULTIPLAYER_BUFFER[player as usize].load(Ordering::Relaxed);
+            if raw != 0xFFFF {
+                Some(raw)
+            } else {
+                None
+            }
+        })
+    }
+
+    pub fn initialize_id(&mut self) -> Result<(), TransferError> {
+        const SENTINEL: u16 = 0xFEAD;
+        println!("Initializing ID");
+        self.mark_unready();
+        self.write_send_reg(SENTINEL);
+        println!("Send register initialized");
+        self.enable_interrupt(true);
+        self.mark_ready();
+        loop {
+            {
+                println!("Performing transfer start");
+                match self.start_transfer() {
+                    Ok(()) => {
+                        println!("Started transfer.");
+                    }
+                    Err(TransferError::AlreadyInProgress) => {
+                        // Parent beat us to it; let it keep going
+                        println!("Transfer in progress.");
+                    }
+                    Err(TransferError::FailedReadyCheck) => {
+                        // Others are lagging; wait for them
+                        println!("Failed ready check.");
+                    }
+                    Err(other) => {
+                        return Err(other);
+                    }
+                };
+            }
+            let siocnt = MultiplayerSiocnt::get();
+
+            let reg_statuses = MultiplayerCommReg::ALL.map(|reg| reg.read());
+            let my_id = MultiplayerSiocnt::get().id();
+            if reg_statuses[my_id as usize] == Some(SENTINEL) {
+                self.playerid = Some(my_id);
+                break;
+            }
+        }
+        Ok(())
+    }
+    pub fn start_transfer(&self) -> Result<(), TransferError> {
+        let siocnt = MultiplayerSiocnt::get();
+        if siocnt.busy() {
+            return Err(TransferError::AlreadyInProgress);
+        }
+        let all_ready = self.all_ready();
+        if self.is_parent {
+            println!("Doing transfer.");
+            MultiplayerSiocnt::get().start_transfer();
+        }
+        if !all_ready {
+            return Err(TransferError::FailedReadyCheck);
+        }
+        if siocnt.error_flag() {
+            return Err(TransferError::FailedOkayCheck);
+        }
+        Ok(())
+    }
+    pub fn enable_interrupt(&self, should_enable: bool) {
+        MultiplayerSiocnt::get().enable_irq(should_enable)
+    }
+    pub fn interrupt_enabled(&self) -> bool {
+        MultiplayerSiocnt::get().irq_enabled()
+    }
+    /// Checks whether or not all other connected GBAs are ready for transfer.
+    pub fn all_ready(&self) -> bool {
+        MultiplayerSiocnt::get().gbas_ready()
+    }
+
+    /// Tells the other connected GBAs that we are ready for the next transfer.
+    pub fn mark_ready(&mut self) {
+        // Since we mark ourselves as unready by switching multiplayer modes, we
+        // mark ourselves as ready just by going back into multiplayer mode
+        self.initialize().ok();
+    }
+    /// Tells the other connected GBAs that we aren't ready to transfer yet.
+    ///
+    /// This is accomplished by changing to a different Serial Mode that doesn't
+    /// set the SD pin to HIGH.
+    pub fn mark_unready(&mut self) {
+        // Joybus mode has SD low always (source: https://mgba-emu.github.io/gbatek/#sio-joy-bus-mode)
+        RcntWrapper::get().set_mode(SerialMode::Joybus);
+    }
+
+    pub fn id(&self) -> Option<PlayerId> {
+        self.playerid
     }
 }
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum InitializationError {
+    /// The "error" flag was tripped in the SIOCNT register.
     FailedOkayCheck,
+}
+
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum TransferError {
+    /// The "error" flag was tripped in the SIOCNT register.
+    FailedOkayCheck,
+    /// Not all GBAs were ready for the transfer (though the transfer was still attempted)
+    FailedReadyCheck,
+    /// There was a transfer already in progress when the new one was requested.
+    AlreadyInProgress,
 }
 
 pub struct MultiplayerSiocnt {
@@ -97,10 +226,13 @@ impl MultiplayerSiocnt {
         self.write(new)
     }
 
-    pub fn is_parent(&self) -> bool {
+    pub fn is_child(&self) -> bool {
         self.read_bit(2)
     }
 
+    pub fn is_parent(&self) -> bool {
+        !self.is_child()
+    }
     pub fn gbas_ready(&self) -> bool {
         self.read_bit(3)
     }
@@ -158,5 +290,21 @@ impl MultiplayerCommReg {
     }
     pub fn is_transfering(&self) -> bool {
         self.raw_read() == 0xFFFF
+    }
+}
+
+static MULTIPLAYER_BUFFER: [AtomicU16; 4] = [
+    AtomicU16::new(0xFFFF),
+    AtomicU16::new(0xFFFF),
+    AtomicU16::new(0xFFFF),
+    AtomicU16::new(0xFFFF),
+];
+
+pub static MULTIPLAYER_COUNTER : AtomicU16 = AtomicU16::new(0);
+fn serialized_interrupt() {
+    MULTIPLAYER_COUNTER.fetch_add(1, Ordering::AcqRel);
+    for id in PlayerId::ALL {
+        let reg = MultiplayerCommReg::new(id);
+        MULTIPLAYER_BUFFER[id as usize].store(reg.raw_read(), Ordering::Release);
     }
 }

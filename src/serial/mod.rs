@@ -1,8 +1,23 @@
-use core::{default, ops::{Deref, DerefMut}};
+use core::{
+    default,
+    marker::PhantomData,
+    ops::{Deref, DerefMut},
+};
 
 use voladdress::{Safe, Unsafe, VolAddress};
 
-pub struct Serial;
+use crate::utils::{read_bit, write_bit};
+
+pub struct Serial {
+    _phanton: PhantomData<()>,
+}
+impl Serial {
+    pub fn new() -> Self {
+        Self {
+            _phanton : PhantomData
+        }
+    }
+}
 
 const RCNT: VolAddress<u16, Safe, Safe> = unsafe { VolAddress::new(0x4000134) };
 const SIOCNT: VolAddress<u16, Safe, Safe> = unsafe { VolAddress::new(0x4000128) };
@@ -71,23 +86,6 @@ pub struct RcntWrapper {
     reg: RegisterWrapper,
 }
 method_wraps!(RcntWrapper, reg, RegisterWrapper);
-
-#[inline(always)]
-const fn read_bit(value: u16, n: u8) -> bool {
-    value & (1 << n) != 0
-}
-#[inline(always)]
-const fn write_bit(v: u16, n: u8, bit: bool) -> u16 {
-    (v & !(1 << n)) | ((bit as u16) << n)
-}
-#[inline(always)]
-const fn read_bit_u8(value: u8, n: u8) -> bool {
-    value & (1 << n) != 0
-}
-#[inline(always)]
-const fn write_bit_u8(v: u8, n: u8, bit: bool) -> u8 {
-    (v & !(1 << n)) | ((bit as u8) << n)
-}
 
 impl RcntWrapper {
     pub const fn new() -> Self {
@@ -211,6 +209,7 @@ pub enum BaudRate {
     B115200 = 3,
 }
 
+#[derive(Clone, Copy, Eq, PartialEq, Hash, Debug)]
 pub enum SerialMode {
     Normal,
     Multiplayer,
@@ -219,8 +218,8 @@ pub enum SerialMode {
     Gpio,
 }
 
-mod generalpurpose;
-mod multiplayer;
+pub mod generalpurpose;
+pub mod multiplayer;
 
 pub struct SiocntWrapper {
     reg: RegisterWrapper,
