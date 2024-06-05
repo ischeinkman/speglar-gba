@@ -33,10 +33,36 @@ impl RegisterWrapper {
         self.addr.write(write_bit(self.addr.read(), n, value));
     }
 }
+macro_rules! method_wraps {
+    ($child:ty, $field:ident, $parent:ty) => {
+        impl AsRef<$parent> for $child {
+            fn as_ref(&self) -> &$parent {
+                &self.$field
+            }
+        }
+        impl Deref for $child {
+            type Target = $parent;
+            fn deref(&self) -> &Self::Target {
+                self.as_ref()
+            }
+        }
+        impl AsMut<$parent> for $child {
+            fn as_mut(&mut self) -> &mut $parent {
+                &mut self.$field
+            }
+        }
+        impl DerefMut for $child {
+            fn deref_mut(&mut self) -> &mut Self::Target {
+                self.as_mut()
+            }
+        }
+    };
+}
 
 pub struct RcntWrapper {
-    pub reg: RegisterWrapper,
+    reg: RegisterWrapper,
 }
+method_wraps!(RcntWrapper, reg, RegisterWrapper);
 
 #[inline(always)]
 const fn read_bit(value: u16, n: u8) -> bool {
@@ -44,11 +70,15 @@ const fn read_bit(value: u16, n: u8) -> bool {
 }
 #[inline(always)]
 const fn write_bit(v: u16, n: u8, bit: bool) -> u16 {
-    if bit {
-        v | (1 << n)
-    } else {
-        v & !(1 << n)
-    }
+    (v & !(1 << n)) | ((bit as u16) << n)
+}
+#[inline(always)]
+const fn read_bit_u8(value: u8, n: u8) -> bool {
+    value & (1 << n) != 0
+}
+#[inline(always)]
+const fn write_bit_u8(v: u8, n: u8, bit: bool) -> u8 {
+    (v & !(1 << n)) | ((bit as u8) << n)
 }
 
 impl RcntWrapper {
@@ -56,6 +86,9 @@ impl RcntWrapper {
         Self {
             reg: RegisterWrapper::new(RCNT),
         }
+    }
+    pub const fn get() -> Self {
+        Self::new()
     }
     pub fn sc_data(&self) -> bool {
         self.reg.read_bit(0)
@@ -111,10 +144,10 @@ impl RcntWrapper {
         let value = self.reg.read();
         let masked = value & (0xF << 4);
         (
-            masked & (1 << 4) != 0, 
-            masked & (1 << 5) != 0, 
-            masked & (1 << 6) != 0, 
-            masked & (1 << 7) != 0, 
+            masked & (1 << 4) != 0,
+            masked & (1 << 5) != 0,
+            masked & (1 << 6) != 0,
+            masked & (1 << 7) != 0,
         )
     }
 
@@ -185,35 +218,16 @@ pub struct SiocntWrapper {
     reg: RegisterWrapper,
 }
 
-impl AsRef<RegisterWrapper> for SiocntWrapper {
-    fn as_ref(&self) -> &RegisterWrapper {
-        &self.reg
-    }
-}
-
-impl Deref for SiocntWrapper {
-    type Target = RegisterWrapper;
-    fn deref(&self) -> &Self::Target {
-        self.as_ref()
-    }
-}
-
-impl AsMut<RegisterWrapper> for SiocntWrapper {
-    fn as_mut(&mut self) -> &mut RegisterWrapper {
-        &mut self.reg
-    }
-}
-impl DerefMut for SiocntWrapper {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.as_mut()
-    }
-}
+method_wraps!(SiocntWrapper, reg, RegisterWrapper);
 
 impl SiocntWrapper {
-    pub const fn new() -> Self {
+    const fn new() -> Self {
         Self {
             reg: RegisterWrapper::new(SIOCNT),
         }
+    }
+    pub const fn get() -> Self {
+        Self::new()
     }
     pub fn mode(&self) -> SerialMode {
         let value = self.reg.read();

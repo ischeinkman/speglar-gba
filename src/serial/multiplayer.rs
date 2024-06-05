@@ -1,13 +1,4 @@
-use core::{
-    cell::UnsafeCell,
-    mem, ptr,
-    sync::atomic::{AtomicI32, Ordering},
-};
-
-use agb::{
-    external::critical_section::CriticalSection,
-    interrupt::{add_interrupt_handler, Interrupt, InterruptHandler},
-};
+use core::mem;
 
 use super::*;
 
@@ -23,47 +14,41 @@ pub enum PlayerId {
 
 pub struct MultiplayerSerial<'a> {
     _handle: &'a mut Serial,
-    _interrupt: InterruptHandler,
-    siocnt: MultiplayerSiocnt,
     is_parent: bool,
     playerid: Option<PlayerId>,
     rate: BaudRate,
 }
 
+#[allow(dead_code)]
 impl<'a> MultiplayerSerial<'a> {
-    fn new(_handle: &'a mut Serial, rate: BaudRate) -> Result<Self, InitializationError> {
+    pub fn new(_handle: &'a mut Serial, rate: BaudRate) -> Result<Self, InitializationError> {
+       let mut retvl = Self {
+            _handle,
+            is_parent : false,
+            playerid: None,
+            rate,
+        };
+        retvl.initialize()?;
+        Ok(retvl)
+    }
+
+    fn initialize(&mut self) -> Result<(), InitializationError> {
         // FROM https://rust-console.github.io/gbatek-gbaonly/#siomultiplayermode:
         let rcnt = RcntWrapper::new();
-        let siocnt = MultiplayerSiocnt::new();
+        let siocnt = MultiplayerSiocnt::get();
 
         rcnt.set_mode(SerialMode::Multiplayer);
         siocnt.set_mode(SerialMode::Multiplayer);
-        siocnt.set_baud_rate(rate);
+        siocnt.set_baud_rate(self.rate);
 
         let is_okay = siocnt.reg.read_bit(3);
         if !is_okay {
             return Err(InitializationError::FailedOkayCheck);
         }
         let is_parent = siocnt.reg.read_bit(2);
-        let handler = unsafe { add_interrupt_handler(Interrupt::Serial, _on_irq) };
-        Ok(Self {
-            _handle,
-            _interrupt: handler,
-            siocnt,
-            is_parent,
-            playerid: None,
-            rate,
-        })
-    }
-
-    fn wait_for_send(&self) {
-        let old_count = _get_irq_count();
-        if self.is_parent {
-            let old = SIOCNT.read();
-            let new = old | 1 << 7;
-            SIOCNT.write(new);
-        }
-        while _get_irq_count() == old_count {}
+        self.is_parent = is_parent;
+        self.playerid = self.is_parent.then_some(PlayerId::Parent);
+        Ok(())
     }
 }
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -71,17 +56,11 @@ pub enum InitializationError {
     FailedOkayCheck,
 }
 
-static mut COUNTER: UnsafeCell<u32> = UnsafeCell::new(0);
-fn _on_irq(c: CriticalSection<'_>) {
-    unsafe {
-        let old: u32 = ptr::read_volatile(COUNTER.get() as *const _);
-        let new = old.wrapping_add(1);
-        ptr::write_volatile(COUNTER.get(), new);
-    }
+pub struct MultiplayerSiocnt {
+    inner: SiocntWrapper,
 }
-fn _get_irq_count() -> u32 {
-    unsafe { ptr::read_volatile(COUNTER.get() as *const _) }
-}
+
+method_wraps!(MultiplayerSiocnt, inner, SiocntWrapper);
 
 /*
   Bit   Expl.
@@ -97,40 +76,14 @@ fn _get_irq_count() -> u32 {
   14    IRQ Enable          (0=Disable, 1=Want IRQ upon completion)
   15    Not used            (Read only, always 0)
 */
-
-pub struct MultiplayerSiocnt {
-    inner: SiocntWrapper,
-}
-
-impl AsRef<SiocntWrapper> for MultiplayerSiocnt {
-    fn as_ref(&self) -> &SiocntWrapper {
-        &self.inner
-    }
-}
-impl AsMut<SiocntWrapper> for MultiplayerSiocnt {
-    fn as_mut(&mut self) -> &mut SiocntWrapper {
-        &mut self.inner
-    }
-}
-
-impl Deref for MultiplayerSiocnt {
-    type Target = SiocntWrapper;
-    fn deref(&self) -> &Self::Target {
-        self.as_ref()
-    }
-}
-
-impl DerefMut for MultiplayerSiocnt {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.as_mut()
-    }
-}
-
 impl MultiplayerSiocnt {
-    pub const fn new() -> Self {
+    const fn new() -> Self {
         Self {
             inner: SiocntWrapper::new(),
         }
+    }
+    pub const fn get() -> Self {
+        Self::new()
     }
     pub fn baud_rate(&self) -> BaudRate {
         let v = self.read();
@@ -176,6 +129,11 @@ pub struct MultiplayerCommReg {
 }
 
 impl MultiplayerCommReg {
+    pub const PARENT: Self = MultiplayerCommReg::new(PlayerId::Parent);
+    pub const P1: Self = MultiplayerCommReg::new(PlayerId::P1);
+    pub const P2: Self = MultiplayerCommReg::new(PlayerId::P2);
+    pub const P3: Self = MultiplayerCommReg::new(PlayerId::P3);
+    pub const ALL: [Self; 4] = [Self::PARENT, Self::P1, Self::P2, Self::P3];
     pub const fn new(player_id: PlayerId) -> Self {
         let addr = match player_id {
             PlayerId::Parent => 0x4000120,
