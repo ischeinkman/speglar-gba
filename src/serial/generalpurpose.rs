@@ -1,4 +1,6 @@
-use alloc::rc;
+use core::marker::PhantomData;
+
+use crate::utils::{read_bit_u8, write_bit_u8};
 
 use super::*;
 
@@ -30,15 +32,21 @@ impl GpioDirection {
 }
 
 pub struct GeneralPurpose<'a> {
-    _handle: &'a mut Serial,
+    _handle: PhantomData<&'a mut Serial>,
 }
 
 impl<'a> GeneralPurpose<'a> {
     pub fn new(_handle: &'a mut Serial) -> Self {
         RcntWrapper::get().set_mode(SerialMode::Gpio);
-        Self { _handle }
+        Self {
+            _handle: PhantomData,
+        }
     }
-
+    pub fn from_handle<'b: 'a>(_handle: &'a mut PhantomData<&'b mut Serial>) -> Self {
+        Self {
+            _handle: PhantomData,
+        }
+    }
     pub fn gpio_config(&self) -> GpioConfig {
         GpioConfig::from_rcnt(RcntWrapper::new().read())
     }
@@ -58,15 +66,15 @@ impl<'a> GeneralPurpose<'a> {
     pub fn pins(&self) -> PinState {
         PinState::from_rcnt(RcntWrapper::get().read())
     }
-    pub fn write_pins(&self, state : PinState) {
+    pub fn write_pins(&self, state: PinState) {
         let old = RcntWrapper::get().read();
         let new = (old & !PinState::MASK) | state.into_rcnt();
         RcntWrapper::get().write(new)
     }
-    pub fn write_pin(&self, pin : Pin, high : bool) {
+    pub fn write_pin(&self, pin: Pin, high: bool) {
         RcntWrapper::get().write_bit(pin as u8, high)
     }
-    pub fn read_pin(&self, pin : Pin) -> bool {
+    pub fn read_pin(&self, pin: Pin) -> bool {
         RcntWrapper::get().read_bit(pin as u8)
     }
 }
@@ -101,7 +109,7 @@ pub struct PinState {
 }
 
 impl PinState {
-    const MASK : u16 = 0xF; 
+    const MASK: u16 = 0xF;
     const fn from_rcnt(rcnt: u16) -> Self {
         let masked = (rcnt & Self::MASK) as u8;
         Self { state: masked }

@@ -217,6 +217,23 @@ impl Add<AlignedVec> for VectType {
     }
 }
 
+#[inline(always)]
+pub const fn read_bit(value: u16, n: u8) -> bool {
+    value & (1 << n) != 0
+}
+#[inline(always)]
+pub const fn write_bit(v: u16, n: u8, bit: bool) -> u16 {
+    (v & !(1 << n)) | ((bit as u16) << n)
+}
+#[inline(always)]
+pub const fn read_bit_u8(value: u8, n: u8) -> bool {
+    value & (1 << n) != 0
+}
+#[inline(always)]
+pub const fn write_bit_u8(v: u8, n: u8, bit: bool) -> u8 {
+    (v & !(1 << n)) | ((bit as u8) << n)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
