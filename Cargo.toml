@@ -1,0 +1,18 @@
+[package]
+name = "speglar-gba"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+agb = "0.20.1"
+voladdress = "1.4.0"
+
+
+[profile.dev]
+opt-level = 3
+debug = true
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+debug = true
