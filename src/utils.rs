@@ -216,3 +216,35 @@ impl Add<AlignedVec> for VectType {
         VectType::new(self.x + rhs.x(), self.y + rhs.y())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use agb::Gba;
+
+    #[test_case]
+    fn test_n_stepper(_gba: &mut Gba) {
+        let tests = [
+            // Test basic
+            (0.0, 0.2, 1.0, 0.2),
+            // Step from previous
+            (0.7, 0.2, 1.0, 0.9),
+            // Overstep
+            (0.9, 0.2, 1.0, 1.0),
+            // Clamping
+            (1.1, 0.2, 1.0, 1.0),
+            // Direction change
+            (0.9, 0.2, -1.0, 0.7),
+            // Direction change 2
+            (0.9, -0.2, 1.0, 1.0),
+        ];
+        for (idx, (cur, step, goal, expected)) in tests.into_iter().enumerate() {
+            let cur = N::from_f32(cur);
+            let step = N::from_f32(step);
+            let goal = N::from_f32(goal);
+            let expected = N::from_f32(expected);
+            let actual = step_to(cur, step, goal);
+            assert_eq!(expected, actual, "Error in test: {}", idx);
+        }
+    }
+}
