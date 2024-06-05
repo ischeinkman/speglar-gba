@@ -1,11 +1,8 @@
-use core::fmt::Write;
 use core::{marker::PhantomData, mem};
 
 use crate::logs::println;
 use agb::external::portable_atomic::{AtomicU16, Ordering};
 use agb::interrupt::{add_interrupt_handler, Interrupt, InterruptHandler};
-use alloc::borrow::ToOwned;
-use generalpurpose::{GeneralPurpose, GpioConfig, GpioDirection};
 
 use super::*;
 
@@ -110,7 +107,6 @@ impl<'a> MultiplayerSerial<'a> {
                     }
                 };
             }
-            let siocnt = MultiplayerSiocnt::get();
 
             let reg_statuses = MultiplayerCommReg::ALL.map(|reg| reg.read());
             let my_id = MultiplayerSiocnt::get().id();
@@ -300,7 +296,7 @@ static MULTIPLAYER_BUFFER: [AtomicU16; 4] = [
     AtomicU16::new(0xFFFF),
 ];
 
-pub static MULTIPLAYER_COUNTER : AtomicU16 = AtomicU16::new(0);
+pub static MULTIPLAYER_COUNTER: AtomicU16 = AtomicU16::new(0);
 fn serialized_interrupt() {
     MULTIPLAYER_COUNTER.fetch_add(1, Ordering::AcqRel);
     for id in PlayerId::ALL {

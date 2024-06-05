@@ -221,7 +221,11 @@ fn multiplayer_test_main(mut _gba: Gba) -> ! {
                 panic!("{:?}", e);
             }
         }
-        let mut msg = format!("Current loop: {:03} (Counter: {:?})\n", loopcnt, MULTIPLAYER_COUNTER.load(Ordering::Acquire));
+        let mut msg = format!(
+            "Current loop: {:03} (Counter: {:?})\n",
+            loopcnt,
+            MULTIPLAYER_COUNTER.load(Ordering::Acquire)
+        );
         for pid in PlayerId::ALL {
             write!(&mut msg, "  -  Player {}", pid as u8).ok();
             if Some(pid) == multiplayer_handle.id() {

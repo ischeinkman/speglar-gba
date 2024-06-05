@@ -1,10 +1,9 @@
 use core::{
-    default,
     marker::PhantomData,
     ops::{Deref, DerefMut},
 };
 
-use voladdress::{Safe, Unsafe, VolAddress};
+use voladdress::{Safe, VolAddress};
 
 use crate::utils::{read_bit, write_bit};
 
@@ -14,7 +13,7 @@ pub struct Serial {
 impl Serial {
     pub fn new() -> Self {
         Self {
-            _phanton : PhantomData
+            _phanton: PhantomData,
         }
     }
 }

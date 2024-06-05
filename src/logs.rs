@@ -95,5 +95,5 @@ macro_rules! println {
 
 pub(crate) use debug;
 pub(crate) use info;
-pub(crate) use warning;
 pub(crate) use println;
+pub(crate) use warning;

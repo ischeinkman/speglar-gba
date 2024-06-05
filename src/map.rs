@@ -1,4 +1,4 @@
-use core::hash::{self, Hash, Hasher};
+use core::hash::Hash;
 
 use agb::display::{
     object::{OamManaged, Object},
@@ -8,7 +8,7 @@ use agb::display::{
 use alloc::{string::String, vec::Vec};
 
 mod generation;
-use crate::{graphics::*, rng::Rng, PlayerTag, RectExt, RectType};
+use crate::{graphics::*, RectExt, RectType};
 pub use generation::*;
 mod tiles;
 pub use tiles::*;
