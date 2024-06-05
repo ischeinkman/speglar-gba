@@ -7,7 +7,7 @@ use agb::display::object::Tag;
 pub enum MapTile {
     /// An empty gridspace.
     ///
-    /// Repr: 
+    /// Repr:
     #[default]
     Empty = 0,
 
@@ -102,18 +102,21 @@ impl MapTile {
     }
     pub const fn allows_player(self) -> bool {
         use MapTile::*;
-        matches!(self, Empty | UpMirror | DownMirror | HorizMirror | VertMirror)
+        matches!(
+            self,
+            Empty | UpMirror | DownMirror | HorizMirror | VertMirror
+        )
     }
     pub const fn repr(self) -> char {
         use MapTile::*;
         match self {
-            Empty => ' ', 
-            Block => 'x', 
-            UpMirror => '/', 
-            DownMirror => '\\', 
+            Empty => ' ',
+            Block => 'x',
+            UpMirror => '/',
+            DownMirror => '\\',
             HorizMirror => '-',
-            VertMirror => '|', 
-            HorizPipe => '=', 
+            VertMirror => '|',
+            HorizPipe => '=',
             VertPipe => '"',
         }
     }

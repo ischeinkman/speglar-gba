@@ -28,11 +28,14 @@ const MAP_HEIGHT: usize = ((HEIGHT / TILE_SIZE) - 2 * BUFFER_TILES) as usize;
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct BaseMap {
     data: [[u8; MAP_BYTE_WIDTH]; MAP_HEIGHT],
-    spawns : [(usize, usize) ; 4], 
+    spawns: [(usize, usize); 4],
 }
 
 impl BaseMap {
-    pub const fn from_raw(data: [[MapTile; MAP_WIDTH]; MAP_HEIGHT], spawns : [(usize, usize) ; 4]) -> Self {
+    pub const fn from_raw(
+        data: [[MapTile; MAP_WIDTH]; MAP_HEIGHT],
+        spawns: [(usize, usize); 4],
+    ) -> Self {
         let mut buffer = [[0u8; MAP_BYTE_WIDTH]; MAP_HEIGHT];
         let mut xidx = 0;
         while xidx < MAP_WIDTH {
@@ -53,7 +56,10 @@ impl BaseMap {
             }
             xidx += 1;
         }
-        Self { data: buffer, spawns }
+        Self {
+            data: buffer,
+            spawns,
+        }
     }
     #[allow(dead_code)]
     pub fn flip(&mut self, x: usize, y: usize) {

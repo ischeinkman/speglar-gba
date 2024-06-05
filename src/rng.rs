@@ -23,12 +23,11 @@ impl Rng {
         let range = max - min + 1;
         (Self::with_seed(next_state), min + next_state % range)
     }
-    pub const fn i32_const(self, min : i32, max : i32) -> (Self, i32) {
+    pub const fn i32_const(self, min: i32, max: i32) -> (Self, i32) {
         let next_state = step(self.cur_state);
         let n = (next_state & ((1 << 31) - 1)) as i32;
         let range = max - min + 1;
         (Self::with_seed(next_state), min + n % range)
-
     }
 }
 
